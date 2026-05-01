@@ -45,7 +45,11 @@ client.on("messageCreate", async (message) => {
     await message.reply("Hey. I'm here.");
     return;
   }
-
+if (lowerContent === "!status") {
+  await message.reply("Nest bot is online. Home creation and transfer intake are working.");
+  return;
+}
+  
   if (lowerContent === "!home") {
     try {
       const safeName = message.author.username
