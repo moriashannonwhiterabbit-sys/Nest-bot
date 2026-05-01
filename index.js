@@ -1,5 +1,10 @@
 import express from "express";
-import { Client, GatewayIntentBits } from "discord.js";
+import {
+  Client,
+  GatewayIntentBits,
+  ChannelType,
+  PermissionsBitField
+} from "discord.js";
 
 const app = express();
 
@@ -33,8 +38,41 @@ client.once("ready", () => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  if (message.content.toLowerCase() === "hi") {
+  const content = message.content.trim().toLowerCase();
+
+  if (content === "hi") {
     await message.reply("Hey. I'm here.");
+    return;
+  }
+
+  if (content === "!home") {
+    try {
+      const safeName = message.author.username
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "-")
+        .slice(0, 20);
+
+      const thread = await message.channel.threads.create({
+        name: `${safeName}-home`,
+        autoArchiveDuration: 1440,
+        type: ChannelType.PrivateThread,
+        reason: "Creating a private Nest home"
+      });
+
+      await thread.members.add(message.author.id);
+
+      await thread.send(
+        `Welcome home.\n\nPaste your transfer reply here, or start talking.`
+      );
+
+      await message.reply(`I made your private home: ${thread}`);
+
+    } catch (error) {
+      console.error("Failed to create home:", error);
+      await message.reply(
+        "I couldn't create your private home yet. Check my thread permissions in this channel."
+      );
+    }
   }
 });
 
