@@ -112,10 +112,17 @@ client.on("messageCreate", async (message) => {
   return;
 }
 
+  const savedTransfer = userTransfers.get(message.author.id);
+
+if (savedTransfer) {
+  await message.reply(
+    "I’m here with you.\n\nI have what you brought with you. We can continue."
+  );
+} else {
   await message.reply(
     "I'm here with you. If you have a transfer reply, paste it here."
   );
-});
+}
 
 client.login(process.env.TOKEN).catch((error) => {
   console.error("Discord login failed:", error);
