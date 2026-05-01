@@ -118,7 +118,6 @@ if (savedTransfer) {
   await message.reply(
     "I’m here with you.\n\nI have what you brought with you. We can continue."
   );
-  ));
   
 } else {
   await message.reply(
