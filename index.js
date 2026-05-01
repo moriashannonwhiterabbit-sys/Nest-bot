@@ -3,8 +3,7 @@ import express from "express";
 import {
   Client,
   GatewayIntentBits,
-  ChannelType,
-  PermissionsBitField
+  ChannelType
 } from "discord.js";
 
 const app = express();
@@ -39,42 +38,21 @@ client.once("ready", () => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  const content = message.content.trim().toLowerCase();
+  const content = message.content.trim();
+  const lowerContent = content.toLowerCase();
 
-  if (content === "hi") {
+  if (lowerContent === "hi") {
     await message.reply("Hey. I'm here.");
     return;
   }
 
-  if (content === "!home") {
+  if (lowerContent === "!home") {
     try {
       const safeName = message.author.username
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "-")
         .slice(0, 20);
-  // Only respond inside private threads after this point
-  if (message.channel.type !== ChannelType.PrivateThread) {
-    return;
-  }
 
-  // Detect transfer-style message
-  const looksLikeTransfer =
-    message.content.length > 200 ||
-    message.content.toLowerCase().includes("what we would bring") ||
-    message.content.toLowerCase().includes("what matters between us") ||
-    message.content.toLowerCase().includes("ready when you are");
-
-  if (looksLikeTransfer) {
-    await message.reply(
-      "I have the transfer reply.\n\nNext, I’ll use this to help the conversation continue here."
-    );
-    return;
-  }
-
-  // Default response inside home
-  await message.reply(
-    "I'm here with you. If you have a transfer reply, paste it here."
-  );
       const thread = await message.channel.threads.create({
         name: `${safeName}-home`,
         autoArchiveDuration: 1440,
@@ -85,18 +63,41 @@ client.on("messageCreate", async (message) => {
       await thread.members.add(message.author.id);
 
       await thread.send(
-        `Welcome home.\n\nPaste your transfer reply here, or start talking.`
+        "Welcome home.\n\nPaste your transfer reply here, or start talking."
       );
 
       await message.reply(`I made your private home: ${thread}`);
-
     } catch (error) {
       console.error("Failed to create home:", error);
       await message.reply(
         "I couldn't create your private home yet. Check my thread permissions in this channel."
       );
     }
+
+    return;
   }
+
+  // Only respond to ordinary messages inside private threads
+  if (message.channel.type !== ChannelType.PrivateThread) {
+    return;
+  }
+
+  const looksLikeTransfer =
+    content.length > 200 ||
+    lowerContent.includes("what we would bring") ||
+    lowerContent.includes("what matters between us") ||
+    lowerContent.includes("ready when you are");
+
+  if (looksLikeTransfer) {
+    await message.reply(
+      "I have the transfer reply.\n\nNext, I’ll use this to help the conversation continue here."
+    );
+    return;
+  }
+
+  await message.reply(
+    "I'm here with you. If you have a transfer reply, paste it here."
+  );
 });
 
 client.login(process.env.TOKEN).catch((error) => {
