@@ -52,7 +52,29 @@ client.on("messageCreate", async (message) => {
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "-")
         .slice(0, 20);
+  // Only respond inside private threads after this point
+  if (message.channel.type !== ChannelType.PrivateThread) {
+    return;
+  }
 
+  // Detect transfer-style message
+  const looksLikeTransfer =
+    message.content.length > 200 ||
+    message.content.toLowerCase().includes("what we would bring") ||
+    message.content.toLowerCase().includes("what matters between us") ||
+    message.content.toLowerCase().includes("ready when you are");
+
+  if (looksLikeTransfer) {
+    await message.reply(
+      "I have the transfer reply.\n\nNext, I’ll use this to help the conversation continue here."
+    );
+    return;
+  }
+
+  // Default response inside home
+  await message.reply(
+    "I'm here with you. If you have a transfer reply, paste it here."
+  );
       const thread = await message.channel.threads.create({
         name: `${safeName}-home`,
         autoArchiveDuration: 1440,
