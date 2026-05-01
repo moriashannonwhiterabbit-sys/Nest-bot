@@ -1,8 +1,10 @@
+
 import express from "express";
 import {
   Client,
   GatewayIntentBits,
-  ChannelType
+  ChannelType,
+  PermissionsBitField
 } from "discord.js";
 
 const app = express();
@@ -37,16 +39,14 @@ client.once("ready", () => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  const content = message.content.trim();
+  const content = message.content.trim().toLowerCase();
 
-  // Test command
-  if (content.toLowerCase() === "hi") {
+  if (content === "hi") {
     await message.reply("Hey. I'm here.");
     return;
   }
 
-  // Create private home
-  if (content.toLowerCase() === "!home") {
+  if (content === "!home") {
     try {
       const safeName = message.author.username
         .toLowerCase()
@@ -63,29 +63,18 @@ client.on("messageCreate", async (message) => {
       await thread.members.add(message.author.id);
 
       await thread.send(
-        "Welcome home.\n\nPaste your transfer reply here, or start talking."
+        `Welcome home.\n\nPaste your transfer reply here, or start talking.`
       );
 
       await message.reply(`I made your private home: ${thread}`);
+
     } catch (error) {
       console.error("Failed to create home:", error);
       await message.reply(
         "I couldn't create your private home yet. Check my thread permissions in this channel."
       );
     }
-
-    return;
   }
-
-  // Only respond to ordinary messages inside private threads
-  if (message.channel.type !== ChannelType.PrivateThread) {
-    return;
-  }
-
-  // Placeholder home response for now
-  await message.reply(
-    "I'm here with you. Transfer logic comes next."
-  );
 });
 
 client.login(process.env.TOKEN).catch((error) => {
