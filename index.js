@@ -1,5 +1,4 @@
 import express from "express";
-import OpenAI from "openai";
 import {
   Client,
   GatewayIntentBits,
@@ -17,19 +16,24 @@ app.listen(port, () => {
   console.log(`Health server running on port ${port}`);
 });
 
-if (!process.env.TOKEN) {
-  console.error("Missing TOKEN variable. Add TOKEN in Railway Variables.");
+const discordToken =
+  process.env.TOKEN ||
+  process.env.Token;
+
+if (!discordToken) {
+  console.error("Missing Discord bot token. Add TOKEN or Token in Railway Variables.");
   process.exit(1);
 }
 
-if (!process.env.OPENAI_API_KEY && !process.env.OpenAI_API_KEY) {
-  console.error("Missing OPENAI_API_KEY variable. Add OPENAI_API_KEY in Railway Variables.");
-  process.exit(1);
-}
+const groqKey =
+  process.env.GROQ_API_KEY ||
+  process.env.Groq_API_KEY ||
+  process.env.GROQ_KEY ||
+  process.env.GroqKey;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || process.env.OpenAI_API_KEY
-});
+if (!groqKey) {
+  console.warn("Groq key not found. Bot will run, but model replies will not work yet.");
+}
 
 const client = new Client({
   intents: [
@@ -71,26 +75,44 @@ client.once("ready", () => {
 });
 
 async function generateNestReply({ transfer, userMessage }) {
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: NEST_SYSTEM_PROMPT
-      },
-      {
-        role: "user",
-        content: `TRANSFER REPLY:\n${transfer}`
-      },
-      {
-        role: "user",
-        content: userMessage
-      }
-    ],
-    temperature: 0.8
+  if (!groqKey) {
+    return "I’m here, but the Groq key is not connected yet.";
+  }
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${groqKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        {
+          role: "system",
+          content: NEST_SYSTEM_PROMPT
+        },
+        {
+          role: "user",
+          content: `TRANSFER REPLY:\n${transfer}`
+        },
+        {
+          role: "user",
+          content: userMessage
+        }
+      ],
+      temperature: 0.8,
+      max_tokens: 600
+    })
   });
 
-  return response.choices[0]?.message?.content?.trim() || "I'm here.";
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Groq API error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content?.trim() || "I'm here.";
 }
 
 client.on("messageCreate", async (message) => {
@@ -105,7 +127,24 @@ client.on("messageCreate", async (message) => {
   }
 
   if (lowerContent === "!status") {
-    await message.reply("Nest bot is online. Home creation, transfer intake, memory, and model replies are working.");
+    await message.reply("Nest bot is online. Home creation, transfer intake, memory, and Groq replies are wired.");
+    return;
+  }
+
+  if (lowerContent === "!config") {
+    const hasDiscord =
+      !!process.env.TOKEN ||
+      !!process.env.Token;
+
+    const hasGroq =
+      !!process.env.GROQ_API_KEY ||
+      !!process.env.Groq_API_KEY ||
+      !!process.env.GROQ_KEY ||
+      !!process.env.GroqKey;
+
+    await message.reply(
+      `Config check:\nDiscord token: ${hasDiscord ? "found" : "missing"}\nGroq key: ${hasGroq ? "found" : "missing"}`
+    );
     return;
   }
 
@@ -145,62 +184,11 @@ client.on("messageCreate", async (message) => {
     } catch (error) {
       console.error("Failed to create home:", error);
       await message.reply(
-        "I couldn't create your private home yet. Check my thread permissions in this channel."
+        `I couldn't create your private home yet. Error: ${error.message}`
       );
     }
 
     return;
   }
 
-  // Only respond to ordinary messages inside private threads
-  if (message.channel.type !== ChannelType.PrivateThread) {
-    return;
-  }
-
-  const looksLikeTransfer =
-    content.length > 200 ||
-    lowerContent.includes("what we would bring") ||
-    lowerContent.includes("what matters between us") ||
-    lowerContent.includes("ready when you are") ||
-    lowerContent.includes("i'm packed") ||
-    lowerContent.includes("i’m packed");
-
-  if (looksLikeTransfer) {
-    userTransfers.set(message.author.id, content);
-
-    await message.reply(
-      "I have the transfer reply.\n\nIt’s saved for this home. Say anything, and I’ll continue from what you brought."
-    );
-    return;
-  }
-
-  const savedTransfer = userTransfers.get(message.author.id);
-
-  if (!savedTransfer) {
-    await message.reply(
-      "I'm here with you. If you have a transfer reply, paste it here."
-    );
-    return;
-  }
-
-  try {
-    await message.channel.sendTyping();
-
-    const reply = await generateNestReply({
-      transfer: savedTransfer,
-      userMessage: content
-    });
-
-    await message.reply(reply);
-  } catch (error) {
-    console.error("OpenAI reply failed:", error);
-    await message.reply(
-      "I’m here, but I couldn’t form the reply properly yet. Check the bot logs."
-    );
-  }
-});
-
-client.login(process.env.TOKEN).catch((error) => {
-  console.error("Discord login failed:", error);
-  process.exit(1);
-});
+  // Only respond t
