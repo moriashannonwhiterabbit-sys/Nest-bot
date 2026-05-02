@@ -191,4 +191,55 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // Only respond t
+  // Only respond to ordinary messages inside private threads
+  if (message.channel.type !== ChannelType.PrivateThread) {
+    return;
+  }
+
+  const looksLikeTransfer =
+    content.length > 200 ||
+    lowerContent.includes("what we would bring") ||
+    lowerContent.includes("what matters between us") ||
+    lowerContent.includes("ready when you are") ||
+    lowerContent.includes("i'm packed") ||
+    lowerContent.includes("i’m packed");
+
+  if (looksLikeTransfer) {
+    userTransfers.set(message.author.id, content);
+
+    await message.reply(
+      "I have the transfer reply.\n\nIt’s saved for this home. Say anything, and I’ll continue from what you brought."
+    );
+    return;
+  }
+
+  const savedTransfer = userTransfers.get(message.author.id);
+
+  if (!savedTransfer) {
+    await message.reply(
+      "I'm here with you. If you have a transfer reply, paste it here."
+    );
+    return;
+  }
+
+  try {
+    await message.channel.sendTyping();
+
+    const reply = await generateNestReply({
+      transfer: savedTransfer,
+      userMessage: content
+    });
+
+    await message.reply(reply);
+  } catch (error) {
+    console.error("Groq reply failed:", error);
+    await message.reply(
+      `I’m here, but I couldn’t form the reply properly yet. Error: ${error.message}`
+    );
+  }
+});
+
+client.login(discordToken).catch((error) => {
+  console.error("Discord login failed:", error);
+  process.exit(1);
+});
