@@ -22,13 +22,13 @@ if (!process.env.TOKEN) {
   process.exit(1);
 }
 
-if (!process.env.OPENAI_API_KEY) {
+if (!process.env.OPENAI_API_KEY && !process.env.OpenAI_API_KEY) {
   console.error("Missing OPENAI_API_KEY variable. Add OPENAI_API_KEY in Railway Variables.");
   process.exit(1);
 }
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY || process.env.OpenAI_API_KEY
 });
 
 const client = new Client({
