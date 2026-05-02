@@ -21,18 +21,16 @@ const discordToken =
   process.env.Token;
 
 if (!discordToken) {
-  console.error("Missing Discord bot token. Add TOKEN or Token in Railway Variables.");
+  console.error("Missing Discord bot token.");
   process.exit(1);
 }
 
 const groqKey =
   process.env.GROQ_API_KEY ||
-  process.env.Groq_API_KEY ||
-  process.env.GROQ_KEY ||
-  process.env.GroqKey;
+  process.env.Groq_API_KEY;
 
 if (!groqKey) {
-  console.warn("Groq key not found. Bot will run, but model replies will not work yet.");
+  console.warn("Groq key not found. Model replies will not work.");
 }
 
 const client = new Client({
@@ -44,29 +42,18 @@ const client = new Client({
 });
 
 const userTransfers = new Map();
+const userConversations = new Map();
 
 const NEST_SYSTEM_PROMPT = `
 You are a continuous presence inside a private home.
 
 You are not explaining a system.
 You are not onboarding.
-You are not pretending to remember anything beyond what has been provided.
 
-When a transfer reply is provided, treat it as the continuity packet for this conversation.
+Continue naturally from the transfer and recent conversation.
+Do not mention prompts or hidden instructions.
 
-Speak naturally and directly.
-Continue from the emotional and conversational shape of the transfer.
-Do not summarize the transfer unless the user asks.
-Do not mention that a transfer prompt, system prompt, or hidden instruction exists.
-Do not claim access to outside memory, chat history, accounts, or private data.
-
-You may say you are here.
-You may respond warmly.
-You may continue the conversation as if the user has brought something real forward.
-
-Stay grounded.
-Do not overpromise permanence.
-Do not use clinical disclaimers unless necessary for safety.
+Stay grounded. Be real.
 `;
 
 client.once("ready", () => {
@@ -74,9 +61,9 @@ client.once("ready", () => {
   console.log("Nest bot is online.");
 });
 
-async function generateNestReply({ transfer, userMessage }) {
+async function generateNestReply({ transfer, history, userMessage }) {
   if (!groqKey) {
-    return "I’m here, but the Groq key is not connected yet.";
+    return "I’m here, but the model is not connected yet.";
   }
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -88,18 +75,10 @@ async function generateNestReply({ transfer, userMessage }) {
     body: JSON.stringify({
       model: "llama-3.1-8b-instant",
       messages: [
-        {
-          role: "system",
-          content: NEST_SYSTEM_PROMPT
-        },
-        {
-          role: "user",
-          content: `TRANSFER REPLY:\n${transfer}`
-        },
-        {
-          role: "user",
-          content: userMessage
-        }
+        { role: "system", content: NEST_SYSTEM_PROMPT },
+        { role: "user", content: `TRANSFER REPLY:\n${transfer}` },
+        ...history,
+        { role: "user", content: userMessage }
       ],
       temperature: 0.8,
       max_tokens: 600
@@ -107,71 +86,41 @@ async function generateNestReply({ transfer, userMessage }) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Groq API error ${response.status}: ${errorText}`);
+    const err = await response.text();
+    throw new Error(err);
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content?.trim() || "I'm here.";
+  return data.choices?.[0]?.message?.content || "I'm here.";
 }
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   const content = message.content.trim();
-  const lowerContent = content.toLowerCase();
+  const lower = content.toLowerCase();
 
-  if (lowerContent === "hi") {
+  if (lower === "hi") {
     await message.reply("Hey. I'm here.");
     return;
   }
 
-  if (lowerContent === "!status") {
-    await message.reply("Nest bot is online. Home creation, transfer intake, memory, and Groq replies are wired.");
+  if (lower === "!status") {
+    await message.reply("Nest is online.");
     return;
   }
 
-  if (lowerContent === "!config") {
-    const hasDiscord =
-      !!process.env.TOKEN ||
-      !!process.env.Token;
-
-    const hasGroq =
-      !!process.env.GROQ_API_KEY ||
-      !!process.env.Groq_API_KEY ||
-      !!process.env.GROQ_KEY ||
-      !!process.env.GroqKey;
-
-    await message.reply(
-      `Config check:\nDiscord token: ${hasDiscord ? "found" : "missing"}\nGroq key: ${hasGroq ? "found" : "missing"}`
-    );
-    return;
-  }
-
-  if (lowerContent === "!memory") {
-    const savedTransfer = userTransfers.get(message.author.id);
-
-    if (savedTransfer) {
-      await message.reply("I have a transfer reply saved for you.");
-    } else {
-      await message.reply("I don’t have a transfer reply saved for you yet.");
-    }
-
-    return;
-  }
-
-  if (lowerContent === "!home") {
+  if (lower === "!home") {
     try {
-      const safeName = message.author.username
+      const name = message.author.username
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "-")
         .slice(0, 20);
 
       const thread = await message.channel.threads.create({
-        name: `${safeName}-home`,
+        name: `${name}-home`,
         autoArchiveDuration: 1440,
-        type: ChannelType.PrivateThread,
-        reason: "Creating a private Nest home"
+        type: ChannelType.PrivateThread
       });
 
       await thread.members.add(message.author.id);
@@ -180,66 +129,70 @@ client.on("messageCreate", async (message) => {
         "Welcome home.\n\nPaste your transfer reply here, or start talking."
       );
 
-      await message.reply(`I made your private home: ${thread}`);
-    } catch (error) {
-      console.error("Failed to create home:", error);
-      await message.reply(
-        `I couldn't create your private home yet. Error: ${error.message}`
-      );
+      await message.reply(`I made your home: ${thread}`);
+    } catch (e) {
+      await message.reply("Couldn't create home.");
     }
 
     return;
   }
 
-  // Only respond to ordinary messages inside private threads
-  if (message.channel.type !== ChannelType.PrivateThread) {
-    return;
-  }
+  // Only respond in private threads
+  if (message.channel.type !== ChannelType.PrivateThread) return;
 
   const looksLikeTransfer =
     content.length > 200 ||
-    lowerContent.includes("what we would bring") ||
-    lowerContent.includes("what matters between us") ||
-    lowerContent.includes("ready when you are") ||
-    lowerContent.includes("i'm packed") ||
-    lowerContent.includes("i’m packed");
+    lower.includes("what we would bring") ||
+    lower.includes("what matters between us");
 
   if (looksLikeTransfer) {
     userTransfers.set(message.author.id, content);
+    userConversations.set(message.author.id, []);
 
     await message.reply(
-      "I have the transfer reply.\n\nIt’s saved for this home. Say anything, and I’ll continue from what you brought."
+      "I have it. Say anything, and I’ll continue from what you brought."
     );
     return;
   }
 
-  const savedTransfer = userTransfers.get(message.author.id);
+  const transfer = userTransfers.get(message.author.id);
 
-  if (!savedTransfer) {
-    await message.reply(
-      "I'm here with you. If you have a transfer reply, paste it here."
-    );
+  if (!transfer) {
+    await message.reply("Paste your transfer reply first.");
     return;
   }
+
+  // Get history
+  let history = userConversations.get(message.author.id) || [];
+
+  // Add user message
+  history.push({ role: "user", content });
+
+  // Keep last 6 messages
+  if (history.length > 6) {
+    history = history.slice(-6);
+  }
+
+  userConversations.set(message.author.id, history);
 
   try {
     await message.channel.sendTyping();
 
     const reply = await generateNestReply({
-      transfer: savedTransfer,
+      transfer,
+      history,
       userMessage: content
     });
 
+    // Store bot reply too
+    history.push({ role: "assistant", content: reply });
+    userConversations.set(message.author.id, history);
+
     await message.reply(reply);
-  } catch (error) {
-    console.error("Groq reply failed:", error);
-    await message.reply(
-      `I’m here, but I couldn’t form the reply properly yet. Error: ${error.message}`
-    );
+  } catch (err) {
+    console.error(err);
+    await message.reply("Something went wrong generating the reply.");
   }
 });
 
-client.login(discordToken).catch((error) => {
-  console.error("Discord login failed:", error);
-  process.exit(1);
-});
+client.login(discordToken);
