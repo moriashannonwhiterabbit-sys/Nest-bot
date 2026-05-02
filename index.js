@@ -1,4 +1,3 @@
-
 import express from "express";
 import {
   Client,
@@ -31,6 +30,7 @@ const client = new Client({
 });
 
 const userTransfers = new Map();
+
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log("Nest bot is online.");
@@ -46,21 +46,24 @@ client.on("messageCreate", async (message) => {
     await message.reply("Hey. I'm here.");
     return;
   }
-  if (lowerContent === "!status") {
-  await message.reply("Nest bot is online. Home creation and transfer intake are working.");
-  return;
-}
-   if (lowerContent === "!memory") {
-  const savedTransfer = userTransfers.get(message.author.id);
 
-  if (savedTransfer) {
-    await message.reply("I have a transfer reply saved for you.");
-  } else {
-    await message.reply("I don’t have a transfer reply saved for you yet.");
+  if (lowerContent === "!status") {
+    await message.reply("Nest bot is online. Home creation and transfer intake are working.");
+    return;
   }
 
-  return;
-   }
+  if (lowerContent === "!memory") {
+    const savedTransfer = userTransfers.get(message.author.id);
+
+    if (savedTransfer) {
+      await message.reply("I have a transfer reply saved for you.");
+    } else {
+      await message.reply("I don’t have a transfer reply saved for you yet.");
+    }
+
+    return;
+  }
+
   if (lowerContent === "!home") {
     try {
       const safeName = message.author.username
@@ -104,28 +107,28 @@ client.on("messageCreate", async (message) => {
     lowerContent.includes("ready when you are");
 
   if (looksLikeTransfer) {
-  userTransfers.set(message.author.id, content);
+    userTransfers.set(message.author.id, content);
 
-  await message.reply(
-    "I have the transfer reply.\n\nIt’s saved for this home. Next, I’ll use this to help the conversation continue here."
-  );
-  return;
-}
+    await message.reply(
+      "I have the transfer reply.\n\nIt’s saved for this home. Next, I’ll use this to help the conversation continue here."
+    );
+    return;
+  }
 
   const savedTransfer = userTransfers.get(message.author.id);
 
-if (savedTransfer) {
-  await message.reply(
-    "I’m here with you.\n\nI have what you brought with you. We can continue."
-  );
-  
-} else {
-  await message.reply(
-    "I'm here with you. If you have a transfer reply, paste it here."
-  );
-}
+  if (savedTransfer) {
+    await message.reply(
+      "I’m here with you.\n\nI have what you brought with you. We can continue."
+    );
+  } else {
+    await message.reply(
+      "I'm here with you. If you have a transfer reply, paste it here."
+    );
+  }
+});
 
-  client.login(process.env.TOKEN).catch((error) => {
+client.login(process.env.TOKEN).catch((error) => {
   console.error("Discord login failed:", error);
   process.exit(1);
 });
