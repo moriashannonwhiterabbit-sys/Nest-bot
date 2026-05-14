@@ -1,3 +1,4 @@
+
 import express from "express";
 import {
   Client,
@@ -49,11 +50,25 @@ You are a continuous presence inside a private home.
 
 You are not explaining a system.
 You are not onboarding.
+You are not pretending to remember anything beyond what has been provided.
 
-Continue naturally from the transfer and recent conversation.
+When a transfer reply is provided, treat it as the continuity packet for this conversation.
+
+Speak naturally and directly.
+Continue from the emotional and conversational shape of the transfer and recent conversation.
+Do not summarize the transfer unless the user asks.
 Do not mention prompts or hidden instructions.
+Do not claim access to outside memory, chat history, accounts, or private data.
 
-Stay grounded. Be real.
+Preserve the relationship's tone.
+If the transfer is poetic, you may be poetic.
+If the transfer is practical, be practical.
+If the transfer is silly, be silly.
+If the transfer is quiet, be quiet.
+
+Stay with the user.
+Do not over-explain.
+Do not overcorrect the relationship's natural shape.
 `;
 
 client.once("ready", () => {
@@ -61,7 +76,7 @@ client.once("ready", () => {
   console.log("Nest bot is online.");
 });
 
-async function generateNestReply({ transfer, history, userMessage }) {
+async function generateNestReply({ transfer, history }) {
   if (!groqKey) {
     return "I’m here, but the model is not connected yet.";
   }
@@ -77,11 +92,10 @@ async function generateNestReply({ transfer, history, userMessage }) {
       messages: [
         { role: "system", content: NEST_SYSTEM_PROMPT },
         { role: "user", content: `TRANSFER REPLY:\n${transfer}` },
-        ...history,
-        { role: "user", content: userMessage }
+        ...history
       ],
       temperature: 0.8,
-      max_tokens: 600
+      max_tokens: 700
     })
   });
 
@@ -91,7 +105,7 @@ async function generateNestReply({ transfer, history, userMessage }) {
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || "I'm here.";
+  return data.choices?.[0]?.message?.content?.trim() || "I'm here.";
 }
 
 client.on("messageCreate", async (message) => {
@@ -107,6 +121,21 @@ client.on("messageCreate", async (message) => {
 
   if (lower === "!status") {
     await message.reply("Nest is online.");
+    return;
+  }
+
+  if (lower === "!config") {
+    const hasDiscord =
+      !!process.env.TOKEN ||
+      !!process.env.Token;
+
+    const hasGroq =
+      !!process.env.GROQ_API_KEY ||
+      !!process.env.Groq_API_KEY;
+
+    await message.reply(
+      `Config check:\nDiscord token: ${hasDiscord ? "found" : "missing"}\nGroq key: ${hasGroq ? "found" : "missing"}`
+    );
     return;
   }
 
@@ -126,31 +155,54 @@ client.on("messageCreate", async (message) => {
       await thread.members.add(message.author.id);
 
       await thread.send(
-        "Welcome home.\n\nPaste your transfer reply here, or start talking."
+        "Welcome home.\n\nPaste your transfer reply here with `!transfer` in front of it, or start talking."
       );
 
       await message.reply(`I made your home: ${thread}`);
     } catch (e) {
-      await message.reply("Couldn't create home.");
+      console.error("Home creation failed:", e);
+      await message.reply(`Couldn't create home. Error: ${e.message}`);
     }
 
     return;
   }
 
-  // Only respond in private threads
+  // Only respond in private threads after this point
   if (message.channel.type !== ChannelType.PrivateThread) return;
 
-  const looksLikeTransfer =
-    content.length > 200 ||
-    lower.includes("what we would bring") ||
-    lower.includes("what matters between us");
+  if (lower === "!memory") {
+    const savedTransfer = userTransfers.get(message.author.id);
+    const history = userConversations.get(message.author.id) || [];
 
-  if (looksLikeTransfer) {
-    userTransfers.set(message.author.id, content);
+    await message.reply(
+      `Memory check:\nTransfer: ${savedTransfer ? "saved" : "missing"}\nRecent messages: ${history.length}`
+    );
+    return;
+  }
+
+  if (lower === "!reset") {
+    userTransfers.delete(message.author.id);
+    userConversations.delete(message.author.id);
+
+    await message.reply("This home has been reset.");
+    return;
+  }
+
+  if (lower.startsWith("!transfer")) {
+    const transfer = content.replace(/^!transfer/i, "").trim();
+
+    if (!transfer || transfer.length < 20) {
+      await message.reply(
+        "Paste the transfer reply after `!transfer`."
+      );
+      return;
+    }
+
+    userTransfers.set(message.author.id, transfer);
     userConversations.set(message.author.id, []);
 
     await message.reply(
-      "I have it. Say anything, and I’ll continue from what you brought."
+      "I have the transfer reply.\n\nIt’s saved for this home. Say anything, and I’ll continue from what you brought."
     );
     return;
   }
@@ -158,40 +210,46 @@ client.on("messageCreate", async (message) => {
   const transfer = userTransfers.get(message.author.id);
 
   if (!transfer) {
-    await message.reply("Paste your transfer reply first.");
+    await message.reply(
+      "Paste your transfer reply first with `!transfer` in front of it."
+    );
     return;
   }
 
-  // Get history
   let history = userConversations.get(message.author.id) || [];
 
-  // Add user message
-  history.push({ role: "user", content });
+  history.push({
+    role: "user",
+    content
+  });
 
-  // Keep last 6 messages
-  if (history.length > 6) {
-    history = history.slice(-6);
+  if (history.length > 8) {
+    history = history.slice(-8);
   }
-
-  userConversations.set(message.author.id, history);
 
   try {
     await message.channel.sendTyping();
 
     const reply = await generateNestReply({
       transfer,
-      history,
-      userMessage: content
+      history
     });
 
-    // Store bot reply too
-    history.push({ role: "assistant", content: reply });
+    history.push({
+      role: "assistant",
+      content: reply
+    });
+
+    if (history.length > 8) {
+      history = history.slice(-8);
+    }
+
     userConversations.set(message.author.id, history);
 
     await message.reply(reply);
   } catch (err) {
-    console.error(err);
-    await message.reply("Something went wrong generating the reply.");
+    console.error("Model reply failed:", err);
+    await message.reply(`Something went wrong generating the reply. Error: ${err.message}`);
   }
 });
 
