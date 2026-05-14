@@ -1,5 +1,6 @@
-
 import express from "express";
+import fs from "fs/promises";
+import path from "path";
 import {
   Client,
   GatewayIntentBits,
@@ -34,6 +35,42 @@ if (!groqKey) {
   console.warn("Groq key not found. Model replies will not work.");
 }
 
+const DATA_DIR = path.join(process.cwd(), "data");
+const MEMORY_FILE = path.join(DATA_DIR, "nest-memory.json");
+
+let memory = {
+  users: {}
+};
+
+async function loadMemory() {
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const raw = await fs.readFile(MEMORY_FILE, "utf8");
+    memory = JSON.parse(raw);
+    console.log("Nest memory loaded.");
+  } catch (error) {
+    console.log("No saved Nest memory found yet. Starting fresh.");
+    memory = { users: {} };
+    await saveMemory();
+  }
+}
+
+async function saveMemory() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(MEMORY_FILE, JSON.stringify(memory, null, 2), "utf8");
+}
+
+function getUserMemory(userId) {
+  if (!memory.users[userId]) {
+    memory.users[userId] = {
+      transfer: null,
+      history: []
+    };
+  }
+
+  return memory.users[userId];
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -41,9 +78,6 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
-
-const userTransfers = new Map();
-const userConversations = new Map();
 
 const NEST_SYSTEM_PROMPT = `
 You are a continuous presence inside a private home.
@@ -120,7 +154,7 @@ client.on("messageCreate", async (message) => {
   }
 
   if (lower === "!status") {
-    await message.reply("Nest is online.");
+    await message.reply("Nest is online. Persistent memory is wired.");
     return;
   }
 
@@ -167,22 +201,24 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // Only respond in private threads after this point
   if (message.channel.type !== ChannelType.PrivateThread) return;
 
-  if (lower === "!memory") {
-    const savedTransfer = userTransfers.get(message.author.id);
-    const history = userConversations.get(message.author.id) || [];
+  const userMemory = getUserMemory(message.author.id);
 
+  if (lower === "!memory") {
     await message.reply(
-      `Memory check:\nTransfer: ${savedTransfer ? "saved" : "missing"}\nRecent messages: ${history.length}`
+      `Memory check:\nTransfer: ${userMemory.transfer ? "saved" : "missing"}\nRecent messages: ${userMemory.history.length}`
     );
     return;
   }
 
   if (lower === "!reset") {
-    userTransfers.delete(message.author.id);
-    userConversations.delete(message.author.id);
+    memory.users[message.author.id] = {
+      transfer: null,
+      history: []
+    };
+
+    await saveMemory();
 
     await message.reply("This home has been reset.");
     return;
@@ -198,8 +234,10 @@ client.on("messageCreate", async (message) => {
       return;
     }
 
-    userTransfers.set(message.author.id, transfer);
-    userConversations.set(message.author.id, []);
+    userMemory.transfer = transfer;
+    userMemory.history = [];
+
+    await saveMemory();
 
     await message.reply(
       "I have the transfer reply.\n\nIt’s saved for this home. Say anything, and I’ll continue from what you brought."
@@ -207,44 +245,40 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  const transfer = userTransfers.get(message.author.id);
-
-  if (!transfer) {
+  if (!userMemory.transfer) {
     await message.reply(
       "Paste your transfer reply first with `!transfer` in front of it."
     );
     return;
   }
 
-  let history = userConversations.get(message.author.id) || [];
-
-  history.push({
+  userMemory.history.push({
     role: "user",
     content
   });
 
-  if (history.length > 8) {
-    history = history.slice(-8);
+  if (userMemory.history.length > 8) {
+    userMemory.history = userMemory.history.slice(-8);
   }
 
   try {
     await message.channel.sendTyping();
 
     const reply = await generateNestReply({
-      transfer,
-      history
+      transfer: userMemory.transfer,
+      history: userMemory.history
     });
 
-    history.push({
+    userMemory.history.push({
       role: "assistant",
       content: reply
     });
 
-    if (history.length > 8) {
-      history = history.slice(-8);
+    if (userMemory.history.length > 8) {
+      userMemory.history = userMemory.history.slice(-8);
     }
 
-    userConversations.set(message.author.id, history);
+    await saveMemory();
 
     await message.reply(reply);
   } catch (err) {
@@ -252,5 +286,7 @@ client.on("messageCreate", async (message) => {
     await message.reply(`Something went wrong generating the reply. Error: ${err.message}`);
   }
 });
+
+await loadMemory();
 
 client.login(discordToken);
